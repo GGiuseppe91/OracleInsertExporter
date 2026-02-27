@@ -1,56 +1,56 @@
 # OracleInsertExporter
 
-Esporta tabelle Oracle come istruzioni `INSERT INTO` in file `.sql`.
+Exports Oracle tables as `INSERT INTO` SQL statements into `.sql` files.
 
 ---
 
-## 0. Avvio Rapido
+## 0. Quick Start
 
 ```
-1. Modifica appsettings.json → inserisci ConnectionString e Tables
+1. Edit appsettings.json → set ConnectionString and Tables
 2. dotnet run
-3. Trovi i file .sql e il .log nella cartella export_sql\
+3. Find the .sql files and the .log file in the export_sql\ folder
 ```
 
 ---
 
-## 1. Cosa Fa
+## 1. What It Does
 
-- Legge la configurazione da `appsettings.json` (connection string, tabelle, filtri)
-- Si connette al database Oracle tramite ODP.NET Managed Driver
-- Esporta tutte le righe delle tabelle configurate come `INSERT INTO <tabella> (...) VALUES (...);`
-- Salva i file `.sql` in una cartella di output configurabile
-- Registra ogni operazione in un file `.log` con timestamp
-- Modalità consigliata: un file `.sql` per ogni tabella (`OneFilePerTable = true`)
+- Reads configuration from `appsettings.json` (connection string, tables, optional filters)
+- Connects to Oracle via the ODP.NET Managed Driver
+- Exports all rows from the configured tables as `INSERT INTO <table> (...) VALUES (...);`
+- Saves `.sql` files to a configurable output folder
+- Logs every operation with a timestamp to a `.log` file
+- Recommended mode: one `.sql` file per table (`OneFilePerTable = true`)
 
 ---
 
-## 2. Requisiti
+## 2. Requirements
 
-| Componente | Dettaglio |
+| Component | Details |
 |---|---|
-| .NET SDK | Versione 8 o superiore |
-| Driver Oracle | `Oracle.ManagedDataAccess.Core` — già incluso via NuGet |
-| Accesso Oracle | Credenziali con almeno `SELECT` su `ALL_TAB_COLUMNS` e sulle tabelle da esportare |
+| .NET SDK | Version 8 or higher |
+| Oracle Driver | `Oracle.ManagedDataAccess.Core` — already included via NuGet |
+| Oracle Access | Credentials with at least `SELECT` on `ALL_TAB_COLUMNS` and on the tables to export |
 
 ---
 
-## 3. Configurazione (`appsettings.json`)
+## 3. Configuration (`appsettings.json`)
 
-### Riepilogo parametri
+### Parameter Reference
 
-| Parametro | Tipo | Default | Descrizione |
+| Parameter | Type | Default | Description |
 |---|---|---|---|
-| `ConnectionString` | string | *(obbligatorio)* | Connection string Oracle nel formato ODP.NET |
-| `OutputDir` | string | `export_sql` | Cartella dove vengono salvati i file `.sql` e `.log` |
-| `OneFilePerTable` | bool | `true` | `true` = un file per tabella; `false` = un unico file |
-| `QuoteIdentifiers` | bool | `false` | `true` = nomi colonne/tabelle tra virgolette doppie |
-| `CommitEveryRowsComment` | int | `500` | Frequenza del commento `-- COMMIT;` (0 = disabilitato) |
-| `Tables` | array | *(obbligatorio)* | Lista tabelle. Formato: `TABELLA` oppure `SCHEMA.TABELLA` |
-| `WhereByTable` | oggetto | *(vuoto)* | Clausola `WHERE` opzionale per tabella (filtra le righe) |
-| `OrderByByTable` | oggetto | *(vuoto)* | Clausola `ORDER BY` opzionale per tabella |
+| `ConnectionString` | string | *(required)* | Oracle connection string in ODP.NET format |
+| `OutputDir` | string | `export_sql` | Folder where `.sql` and `.log` files are saved |
+| `OneFilePerTable` | bool | `true` | `true` = one file per table; `false` = single combined file |
+| `QuoteIdentifiers` | bool | `false` | `true` = wraps column/table names in double quotes |
+| `CommitEveryRowsComment` | int | `500` | How often to write a `-- COMMIT;` comment (0 = disabled) |
+| `Tables` | array | *(required)* | List of tables to export. Format: `TABLENAME` or `SCHEMA.TABLENAME` |
+| `WhereByTable` | object | *(empty)* | Optional `WHERE` clause per table to filter exported rows |
+| `OrderByByTable` | object | *(empty)* | Optional `ORDER BY` clause per table |
 
-### Esempio completo
+### Full Example
 
 ```json
 {
@@ -61,68 +61,68 @@ Esporta tabelle Oracle come istruzioni `INSERT INTO` in file `.sql`.
     "QuoteIdentifiers": false,
     "CommitEveryRowsComment": 500,
     "Tables": [
-      "CTCP_CDL",
-      "ALTRA_TABELLA",
-      "SCHEMA2.TABELLA_X"
+      "ORDERS",
+      "CUSTOMERS",
+      "SCHEMA2.PRODUCTS"
     ],
     "WhereByTable": {
-      "CTCP_CDL": "WHERE STATUS = 'A'",
-      "ALTRA_TABELLA": "WHERE DATA > DATE '2024-01-01'"
+      "ORDERS": "WHERE STATUS = 'A'",
+      "CUSTOMERS": "WHERE CREATED_DATE > DATE '2024-01-01'"
     },
     "OrderByByTable": {
-      "CTCP_CDL": "ORDER BY ID"
+      "ORDERS": "ORDER BY ID"
     }
   }
 }
 ```
 
-> ⚠️ **Sicurezza:** non committare mai `appsettings.json` con credenziali reali. Aggiungilo al `.gitignore` e usa le variabili d'ambiente (vedi sezione 6A).
+> ⚠️ **Security:** never commit `appsettings.json` with real credentials. Add it to `.gitignore` and use environment variables instead (see section 6A).
 
 ---
 
-## 4. Esecuzione da Sorgente
+## 4. Running from Source
 
 ```bash
 dotnet restore
 dotnet run
 ```
 
-### Output atteso in console
+### Expected Console Output
 
 ```
 Log: C:\export_sql\export_20250227_143000.log
-Connesso a Oracle. Schema corrente: MYSCHEMA
+Connected to Oracle. Current schema: MYSCHEMA
 Output: C:\export_sql
-  CTCP_CDL: righe esportate = 1523
-  ALTRA_TABELLA: righe esportate = 47
-  SCHEMA2.TABELLA_X: righe esportate = 8901
-Esportazione completata.
+  ORDERS: exported rows = 1523
+  CUSTOMERS: exported rows = 47
+  SCHEMA2.PRODUCTS: exported rows = 8901
+Export completed.
 ```
 
-### File generati
+### Generated Files
 
-- Un file `.sql` per ogni tabella, es. `export_sql\CTCP_CDL_20250227_143001.sql`
-- Un file `.log` con tutti i messaggi, es. `export_sql\export_20250227_143000.log`
+- One `.sql` file per table, e.g. `export_sql\ORDERS_20250227_143001.sql`
+- One `.log` file with all messages, e.g. `export_sql\export_20250227_143000.log`
 
 ---
 
-## 5. Priorità delle Configurazioni
+## 5. Configuration Priority
 
-Le impostazioni vengono applicate nell'ordine seguente (la successiva sovrascrive la precedente):
+Settings are applied in the following order (each source overrides the previous one):
 
-| Priorità | Sorgente | Note |
+| Priority | Source | Notes |
 |---|---|---|
-| 1 (minima) | `appsettings.json` | File base, obbligatorio |
-| 2 | Variabili d'ambiente (`OIE_...`) | Utili per CI/CD o per non salvare credenziali su file |
-| 3 (massima) | Argomenti CLI (`--Oracle:...`) | Override rapido da terminale |
+| 1 (lowest) | `appsettings.json` | Required base file |
+| 2 | Environment variables (`OIE_...`) | Useful for CI/CD or to avoid storing credentials on disk |
+| 3 (highest) | CLI arguments (`--Oracle:...`) | Quick terminal override |
 
 ---
 
-## 6. Override senza Modificare `appsettings.json`
+## 6. Overriding Settings Without Editing `appsettings.json`
 
-### 6A — Variabili d'ambiente
+### 6A — Environment Variables
 
-Prefisso: `OIE_` — Separatore sezioni: `__` (doppio underscore)
+Prefix: `OIE_` — Section separator: `__` (double underscore)
 
 **Windows PowerShell**
 ```powershell
@@ -145,9 +145,9 @@ export OIE_Oracle__OutputDir="./export_sql"
 dotnet run
 ```
 
-### 6B — Argomenti CLI
+### 6B — CLI Arguments
 
-**Da sorgente**
+**From source**
 ```bash
 dotnet run -- --Oracle:ConnectionString="User Id=...;Password=...;Data Source=//HOST:1521/SVC;"
 dotnet run -- --Oracle:OutputDir="C:\temp\export_sql"
@@ -155,7 +155,7 @@ dotnet run -- --Oracle:QuoteIdentifiers=true
 dotnet run -- --Oracle:OneFilePerTable=false
 ```
 
-**Da eseguibile**
+**From executable**
 ```bash
 .\OracleInsertExporter.exe --Oracle:ConnectionString="User Id=...;..."
 .\OracleInsertExporter.exe --Oracle:OutputDir="C:\temp\export_sql"
@@ -165,53 +165,53 @@ dotnet run -- --Oracle:OneFilePerTable=false
 
 ## 7. Build / Publish
 
-**Windows x64 — file singolo autonomo**
+**Windows x64 — single self-contained file**
 ```bash
 dotnet publish -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
 # Output: bin\Release\net8.0\win-x64\publish\OracleInsertExporter.exe
 ```
 
-**Linux x64 — file singolo autonomo**
+**Linux x64 — single self-contained file**
 ```bash
 dotnet publish -c Release -r linux-x64 --self-contained true /p:PublishSingleFile=true
 # Output: bin/Release/net8.0/linux-x64/publish/OracleInsertExporter
 ```
 
-**Dipendente dal runtime (file più leggero)**
+**Runtime-dependent (smaller file)**
 ```bash
 dotnet publish -c Release --self-contained false
-# Richiede .NET 8 Runtime installato sulla macchina di destinazione
+# Requires .NET 8 Runtime to be installed on the target machine
 ```
 
-> ⚠️ `appsettings.json` deve trovarsi nella stessa cartella dell'eseguibile, a meno che non si passi la `ConnectionString` via variabile d'ambiente o argomento CLI.
+> ⚠️ `appsettings.json` must be in the same folder as the executable, unless `ConnectionString` is passed via environment variable or CLI argument.
 
 ---
 
-## 8. Esecuzione dei File `.sql` Generati (Import)
+## 8. Running the Generated `.sql` Files (Import)
 
-| Strumento | Come eseguire |
+| Tool | How to run |
 |---|---|
-| SQL Developer | Apri il file `.sql` → **Run Script (F5)** |
-| SQLcl / SQL*Plus | `@CTCP_CDL.sql` |
-| DBeaver | Apri il file → **Esegui script SQL** |
+| SQL Developer | Open the `.sql` file → **Run Script (F5)** |
+| SQLcl / SQL*Plus | `@ORDERS.sql` |
+| DBeaver | Open the file → **Execute SQL Script** |
 
-Il `COMMIT` è commentato per sicurezza. Per rendere permanenti le modifiche, eseguilo manualmente:
+The `COMMIT` is commented out by default for safety. To make changes permanent, run it manually:
 
 ```sql
 COMMIT;
 ```
 
-> ⚠️ I file `.sql` non gestiscono i duplicati. Se nella tabella di destinazione esistono già righe con le stesse chiavi primarie, gli `INSERT` falliranno con `ORA-00001`. Aggiungi manualmente `TRUNCATE` o `DELETE` prima degli `INSERT` se necessario.
+> ⚠️ The generated `.sql` files do not handle duplicates. If the target table already contains rows with the same primary keys, the `INSERT` statements will fail with `ORA-00001`. Add a `TRUNCATE` or `DELETE` before the `INSERT` statements if needed.
 
 ---
 
-## 9. Risoluzione Problemi
+## 9. Troubleshooting
 
-| Problema / Messaggio | Causa probabile | Soluzione |
+| Problem / Message | Likely Cause | Solution |
 |---|---|---|
-| `Nessuna colonna trovata per TABELLA` | Nome tabella errato o permessi insufficienti su `ALL_TAB_COLUMNS` | Verifica il nome (deve essere in MAIUSCOLO) e i permessi Oracle |
-| `ORA-12154: TNS:could not resolve...` | `Data Source` non raggiungibile | Verifica HOST, PORT e SERVICE_NAME. Testa con SQL Developer |
-| File `.sql` vuoto (solo header) | Tabella vuota oppure il `WHERE` filtra tutte le righe | Controlla `WhereByTable` o esegui una `SELECT` manuale |
-| `ORA-00001: unique constraint violated` | Righe duplicate nella tabella di destinazione | Aggiungi `DELETE` o `TRUNCATE` prima degli `INSERT` |
-| `ConnectionString mancante` | Campo vuoto in `appsettings.json` e non passato via ENV/CLI | Imposta la `ConnectionString` nel file o tramite `OIE_Oracle__ConnectionString` |
-| `Nessuna tabella configurata` | Array `Tables` vuoto in `appsettings.json` | Aggiungi almeno un nome di tabella nell'array `Tables` |
+| `No columns found for TABLE` | Wrong table name or insufficient permissions on `ALL_TAB_COLUMNS` | Check the name (must be UPPERCASE) and Oracle user permissions |
+| `ORA-12154: TNS:could not resolve...` | `Data Source` unreachable | Verify HOST, PORT and SERVICE_NAME. Test the connection with SQL Developer |
+| Empty `.sql` file (header only) | Table is empty or the `WHERE` clause filters out all rows | Check `WhereByTable` or run a manual `SELECT` on the table |
+| `ORA-00001: unique constraint violated` | Duplicate rows in the target table | Add `DELETE` or `TRUNCATE` before the `INSERT` statements |
+| `ConnectionString missing` | Field is empty in `appsettings.json` and not passed via ENV/CLI | Set `ConnectionString` in the file or via `OIE_Oracle__ConnectionString` |
+| `No tables configured` | `Tables` array is empty in `appsettings.json` | Add at least one table name to the `Tables` array |
