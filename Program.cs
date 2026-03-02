@@ -11,69 +11,7 @@ internal static class Program
 {
     // Immutable record to hold a column's name and Oracle data type (e.g. VARCHAR2, DATE, NUMBER).
     private sealed record ColumnInfo(string Name, string DataType);
-
-    /// <summary>
-    /// Holds all runtime configuration values read from appsettings.json, environment variables,
-    /// or command-line arguments.
-    /// </summary>
-    private sealed class ExportConfig
-    {
-        /// <summary>
-        /// Gets or sets the ConnectionString
-        /// </summary>
-        public string ConnectionString { get; set; } = "";
-
-        /// <summary>
-        /// Gets or sets the OutputDir
-        /// </summary>
-        public string OutputDir { get; set; } = "export_sql";
-
-        /// <summary>
-        /// Gets or sets a value indicating whether QuoteIdentifiers
-        /// </summary>
-        // When true, all column and table identifiers are wrapped in double quotes,
-        // preserving case and allowing reserved words to be used as names.
-        public bool QuoteIdentifiers { get; set; } = false;
-
-        /// <summary>
-        /// Gets or sets a value indicating whether OneFilePerTable
-        /// </summary>
-        // When true, each table produces its own .sql file; otherwise all tables go into one file.
-        public bool OneFilePerTable { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets the Tables
-        /// </summary>
-        // List of table names to export. Supports "TABLENAME" or "SCHEMA.TABLENAME" format.
-        public List<string> Tables { get; set; } = new();
-
-        /// <summary>
-        /// Gets or sets the WhereByTable
-        /// </summary>
-        // Optional WHERE clause per table (e.g. "WHERE STATUS = 'ACTIVE'") to filter exported rows.
-        // Keys are case-insensitive table names.
-        public Dictionary<string, string> WhereByTable { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>
-        /// Gets or sets the OrderByByTable
-        /// </summary>
-        // Optional ORDER BY clause per table to control the row order in the output file.
-        // Keys are case-insensitive table names.
-        public Dictionary<string, string> OrderByByTable { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>
-        /// Gets or sets the CommitEveryRowsComment
-        /// </summary>
-        // A commented-out "-- COMMIT;" marker is written every N rows as a reminder/checkpoint.
-        // Set to 0 to disable intermediate commit markers.
-        public int CommitEveryRowsComment { get; set; } = 500;
-    }
-
-    /// <summary>
-    /// The Main
-    /// </summary>
-    /// <param name="args">The args<see cref="string[]"/></param>
-    /// <returns>The <see cref="int"/></returns>
+    
     public static int Main(string[] args)
     {
         // Il logger viene creato prima di tutto il resto.
@@ -82,34 +20,29 @@ internal static class Program
 
         try
         {
-            var cfg = LoadConfig(args);
+            ExportConfig cfg = LoadConfig(args);
 
             if (string.IsNullOrWhiteSpace(cfg.ConnectionString))
-            {
-                //logger?.LogError("ConnectionString mancante.");
-                throw new InvalidOperationException("ConnectionString mancante.");
-            }
+                throw new InvalidOperationException(Msg.MissingConnectionString());
+
             if (cfg.Tables.Count == 0)
-            {
-                //logger?.LogError("Nessuna tabella configurata.");
-                throw new InvalidOperationException("Nessuna tabella configurata.");
-            }
-                
+                throw new InvalidOperationException(Msg.NoTablesConfigured());
+
             Directory.CreateDirectory(cfg.OutputDir);
 
             // Ora che conosciamo OutputDir, creiamo il logger.
             logger = new Logger(cfg.OutputDir);
 
-            using var conn = new OracleConnection(cfg.ConnectionString);
+            using OracleConnection conn = new OracleConnection(cfg.ConnectionString);
             conn.Open();
 
-            var currentSchema = GetCurrentSchema(conn);
-            logger.Log($"Connesso a Oracle. Schema corrente: {currentSchema}");
-            logger.Log($"Output: {Path.GetFullPath(cfg.OutputDir)}");
+            string currentSchema = GetCurrentSchema(conn);
+            logger.Log(Msg.ConnectedSchema(currentSchema));
+            logger.Log(Msg.OutputDir(Path.GetFullPath(cfg.OutputDir)));
 
             if (cfg.OneFilePerTable)
             {
-                foreach (var table in cfg.Tables)
+                foreach (string table in cfg.Tables)
                     ExportSingleTableToOwnFile(conn, cfg, table, currentSchema, logger);
             }
             else
@@ -117,17 +50,13 @@ internal static class Program
                 ExportAllTablesToOneFile(conn, cfg, currentSchema, logger);
             }
 
-            logger.Log("Esportazione completata.");
+            logger.Log(Msg.ExportCompleted());
             return 0;
         }
         catch (Exception ex)
         {
             // Se il logger è già disponibile, usa lui; altrimenti scrivi solo su stderr.
-            if (logger is not null)
-                logger.LogError(ex.ToString());
-            else
-                //logger?.LogError("ERRORE: " + ex.ToString());
-                Console.Error.WriteLine("ERRORE: " + ex);
+            logger?.LogError(ex.ToString());
             return 1;
         }
         finally
@@ -147,18 +76,18 @@ internal static class Program
         //   1) appsettings.json  — required base file
         //   2) Environment variables prefixed with OIE_  (e.g. OIE_Oracle__ConnectionString)
         //   3) CLI arguments parsed manually below (highest priority, for quick overrides)
-        var builder = new ConfigurationBuilder()
+        IConfigurationBuilder builder = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
             .AddEnvironmentVariables(prefix: "OIE_");
 
-        var config = builder.Build();
+        IConfigurationRoot config = builder.Build();
 
         // All Oracle-specific settings live under the "Oracle" section in appsettings.json.
-        var oracle = config.GetSection("Oracle");
+        IConfigurationSection oracle = config.GetSection("Oracle");
 
         // Populate the config object with values from the file/env sources.
-        var cfg = new ExportConfig
+        ExportConfig cfg = new ExportConfig
         {
             ConnectionString = oracle["ConnectionString"] ?? "",
             OutputDir = oracle["OutputDir"] ?? "export_sql",
@@ -172,19 +101,19 @@ internal static class Program
 
         // Apply any CLI overrides that were passed in the "--Key=Value" or "--Key Value" format.
         // Example: dotnet run -- --Oracle:ConnectionString="User Id=...;Password=...;..."
-        var overrides = ParseArgs(args);
+        Dictionary<string, string> overrides = ParseArgs(args);
 
         // Each override is applied only if the value is actually present and non-empty.
-        if (overrides.TryGetValue("Oracle:ConnectionString", out var cs) && !string.IsNullOrWhiteSpace(cs))
+        if (overrides.TryGetValue("Oracle:ConnectionString", out string? cs) && !string.IsNullOrWhiteSpace(cs))
             cfg.ConnectionString = cs;
 
-        if (overrides.TryGetValue("Oracle:OutputDir", out var od) && !string.IsNullOrWhiteSpace(od))
+        if (overrides.TryGetValue("Oracle:OutputDir", out string? od) && !string.IsNullOrWhiteSpace(od))
             cfg.OutputDir = od;
 
-        if (overrides.TryGetValue("Oracle:OneFilePerTable", out var oft) && bool.TryParse(oft, out var b1))
+        if (overrides.TryGetValue("Oracle:OneFilePerTable", out string? oft) && bool.TryParse(oft, out bool b1))
             cfg.OneFilePerTable = b1;
 
-        if (overrides.TryGetValue("Oracle:QuoteIdentifiers", out var qi) && bool.TryParse(qi, out var b2))
+        if (overrides.TryGetValue("Oracle:QuoteIdentifiers", out string? qi) && bool.TryParse(qi, out bool b2))
             cfg.QuoteIdentifiers = b2;
 
         return cfg;
@@ -214,8 +143,8 @@ internal static class Program
     {
         // Reads a JSON object like: "WhereByTable": { "ORDERS": "WHERE STATUS = 'OPEN'" }
         // The resulting dictionary is case-insensitive so table name lookup is resilient to casing.
-        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var child in section.GetChildren())
+        Dictionary<string, string> dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (IConfigurationSection child in section.GetChildren())
         {
             // Skip any keys whose value is empty or whitespace-only.
             if (!string.IsNullOrWhiteSpace(child.Value))
@@ -236,11 +165,11 @@ internal static class Program
         //   --Key Value       (space-separated next token)
         //   --Flag            (boolean flag; defaults to "true")
         // Non "--" tokens are silently skipped.
-        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         for (int i = 0; i < args.Length; i++)
         {
-            var a = args[i];
+            string a = args[i];
 
             // Only process tokens that start with "--".
             if (!a.StartsWith("--", StringComparison.Ordinal))
@@ -252,7 +181,7 @@ internal static class Program
             string key;
             string value;
 
-            var eq = a.IndexOf('=');
+            int eq = a.IndexOf('=');
             if (eq >= 0)
             {
                 // "--Key=Value" form: split at the first '='.
@@ -291,7 +220,7 @@ internal static class Program
     /// <returns>The <see cref="bool"/></returns>
     // Parses a string as a boolean, returning the fallback value if parsing fails or input is null.
     private static bool TryGetBool(string? s, bool fallback)
-        => bool.TryParse(s, out var b) ? b : fallback;
+        => bool.TryParse(s, out bool b) ? b : fallback;
 
     /// <summary>
     /// The TryGetInt
@@ -301,7 +230,7 @@ internal static class Program
     /// <returns>The <see cref="int"/></returns>
     // Parses a string as an integer using the invariant culture, returning the fallback on failure.
     private static int TryGetInt(string? s, int fallback)
-        => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) ? i : fallback;
+        => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i) ? i : fallback;
 
     /// <summary>
     /// The GetCurrentSchema
@@ -312,8 +241,8 @@ internal static class Program
     {
         // SYS_CONTEXT('USERENV','CURRENT_SCHEMA') returns the schema that unqualified
         // object references resolve to for this session — typically the logged-in user's schema.
-        using var cmd = new OracleCommand("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual", conn);
-        var v = cmd.ExecuteScalar();
+        using OracleCommand cmd = new OracleCommand("SELECT SYS_CONTEXT('USERENV','CURRENT_SCHEMA') FROM dual", conn);
+        object? v = cmd.ExecuteScalar();
         return Convert.ToString(v, CultureInfo.InvariantCulture) ?? "UNKNOWN";
     }
 
@@ -325,13 +254,13 @@ internal static class Program
     /// <param name="currentSchema">The currentSchema<see cref="string"/></param>
     private static void ExportAllTablesToOneFile(OracleConnection conn, ExportConfig cfg, string currentSchema, Logger logger)
     {
-        var filePath = Path.Combine(cfg.OutputDir, $"export_all_tables_{DateTime.Now:yyyyMMdd_HHmmss}.sql");
-        using var sw = CreateWriter(filePath);
+        string filePath = Path.Combine(cfg.OutputDir, $"export_all_tables_{DateTime.Now:yyyy-MM-dd HH:mm:ss}.sql");
+        using StreamWriter sw = CreateWriter(filePath);
 
         // Write the file-level header comment with generation timestamp.
         WriteFileHeader(sw, "TUTTE LE TABELLE");
 
-        foreach (var table in cfg.Tables)
+        foreach (string table in cfg.Tables)
         {
             // Visually separate each table's block with a banner comment for readability.
             sw.WriteLine();
@@ -344,7 +273,7 @@ internal static class Program
         }
 
         sw.Flush(); // Ensure all buffered data is written to disk before closing.
-        logger.Log($"Creato: {filePath}");
+        logger.Log(Msg.FileCreated(filePath));
     }
 
     /// <summary>
@@ -358,14 +287,14 @@ internal static class Program
     {
         // Derive a safe file name from the table name, replacing characters that are
         // invalid in file names (including '.' used in SCHEMA.TABLE notation).
-        var filePath = Path.Combine(cfg.OutputDir, $"{currentSchema}.{SanitizeFileName(tableName)}_{DateTime.Now:yyyyMMdd_HHmmss}.sql");
-        using var sw = CreateWriter(filePath);
+        string filePath = Path.Combine(cfg.OutputDir, $"{currentSchema}.{SanitizeFileName(tableName)}_{DateTime.Now:yyyy-MM-dd HH:mm:ss}.sql");
+        using StreamWriter sw = CreateWriter(filePath);
 
         WriteFileHeader(sw, tableName);
         ExportTableIntoWriter(conn, cfg, tableName, sw, currentSchema, logger);
 
         sw.Flush(); // Flush the buffer to guarantee the file is complete on disk.
-        logger.Log($"Creato: {filePath}");
+        logger.Log(Msg.FileCreated(filePath));
     }
 
     /// <summary>
@@ -377,7 +306,7 @@ internal static class Program
     {
         // Create (or overwrite) the file and wrap it in a StreamWriter.
         // UTF-8 without BOM is used so the files are compatible with most SQL tools and Unix pipelines.
-        var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        FileStream fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
         return new StreamWriter(fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 
@@ -392,9 +321,6 @@ internal static class Program
         // know what the file contains, when it was generated, and any important caveats.
         sw.WriteLine($"-- Export INSERT per: {title}");
         sw.WriteLine($"-- Generato: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-        //sw.WriteLine("-- NOTE:");
-        //sw.WriteLine("--  - INSERT senza gestione duplicati (come richiesto).");
-        //sw.WriteLine("--  - Se vuoi, aggiungi manualmente TRUNCATE/DELETE prima degli INSERT.");
         sw.WriteLine();
     }
 
@@ -409,25 +335,27 @@ internal static class Program
     private static void ExportTableIntoWriter(OracleConnection conn, ExportConfig cfg, string tableName, StreamWriter sw, string currentSchema, Logger logger)
     {
         // Retrieve the ordered column metadata for this table from the Oracle data dictionary.
-        var cols = GetColumns(conn, tableName, currentSchema, logger);
+        List<ColumnInfo> cols = GetColumns(conn, tableName, currentSchema, logger);
         if (cols.Count == 0)
         {
-            logger.LogError($"Nessuna colonna trovata per {tableName}. Controlla nome tabella/schema.");
-            throw new InvalidOperationException($"Nessuna colonna trovata per {tableName}. Controlla nome tabella/schema.");
+            string msg = Msg.NoColumnsFound(tableName);
+            logger.LogError(msg);
+            throw new InvalidOperationException(msg);
         }
+
         // Look up any optional WHERE / ORDER BY clauses configured for this specific table.
         // If not configured, the suffix is an empty string (i.e. no filtering or ordering).
-        var where = cfg.WhereByTable.TryGetValue(tableName, out var w) && !string.IsNullOrWhiteSpace(w) ? " " + w : "";
-        var orderBy = cfg.OrderByByTable.TryGetValue(tableName, out var o) && !string.IsNullOrWhiteSpace(o) ? " " + o : "";
+        string where = cfg.WhereByTable.TryGetValue(tableName, out string? w) && !string.IsNullOrWhiteSpace(w) ? " " + w : "";
+        string orderBy = cfg.OrderByByTable.TryGetValue(tableName, out string? o) && !string.IsNullOrWhiteSpace(o) ? " " + o : "";
 
         // Build the SELECT statement dynamically using the column names from the data dictionary.
-        var selectCols = string.Join(", ", cols.Select(c => QuoteIdent(c.Name, cfg.QuoteIdentifiers)));
-        var sql = $"SELECT {selectCols} FROM {tableName}{where}{orderBy}";
+        string selectCols = string.Join(", ", cols.Select(c => QuoteIdent(c.Name, cfg.QuoteIdentifiers)));
+        string sql = $"SELECT {selectCols} FROM {tableName}{where}{orderBy}";
 
         // SequentialAccess is a performance hint: it tells the ODP.NET driver we will read
         // columns left-to-right without random access, enabling streaming for large LOB columns.
-        using var cmd = new OracleCommand(sql, conn) { BindByName = true };
-        using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
+        using OracleCommand cmd = new OracleCommand(sql, conn) { BindByName = true };
+        using OracleDataReader reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
 
         int rowCount = 0;
 
@@ -436,7 +364,7 @@ internal static class Program
             rowCount++;
 
             // Convert each column value to its Oracle SQL literal representation.
-            var valuesSql = new string[cols.Count];
+            string[] valuesSql = new string[cols.Count];
             for (int i = 0; i < cols.Count; i++)
             {
                 // Read the raw value; treat DB nulls uniformly as null for literal conversion.
@@ -446,7 +374,7 @@ internal static class Program
 
             // Build the INSERT statement column list (recomputed per row in case quoting matters,
             // though in practice it is the same for every row of the same table).
-            var insertCols = string.Join(", ", cols.Select(c => QuoteIdent(c.Name, cfg.QuoteIdentifiers)));
+            string insertCols = string.Join(", ", cols.Select(c => QuoteIdent(c.Name, cfg.QuoteIdentifiers)));
 
             // Write the INSERT statement directly to the stream using multiple Write calls
             // to avoid building a large intermediate string for every row.
@@ -468,7 +396,7 @@ internal static class Program
         sw.WriteLine();
         sw.WriteLine("-- COMMIT;");
 
-        logger.Log($"{tableName}: righe esportate = {rowCount}");
+        logger.Log(Msg.RowsExported(tableName, rowCount));
     }
 
     /// <summary>
@@ -484,7 +412,7 @@ internal static class Program
         string tab;
 
         // Support both "TABLENAME" and "SCHEMA.TABLENAME" input formats.
-        var parts = tableName.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string[] parts = tableName.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length == 2)
         {
             // Explicit schema prefix provided — use it directly.
@@ -500,8 +428,9 @@ internal static class Program
         else
         {
             // More than one dot is ambiguous and unsupported.
-            logger.LogError($"Nome tabella non valido: '{tableName}'. Usa 'TABELLA' o 'SCHEMA.TABELLA'.");
-            throw new ArgumentException($"Nome tabella non valido: '{tableName}'. Usa 'TABELLA' o 'SCHEMA.TABELLA'.");
+            string msg = Msg.InvalidTableName(tableName);
+            logger.LogError(msg);
+            throw new ArgumentException(msg);
         }
 
         // Query ALL_TAB_COLUMNS (accessible to the current user) for column metadata.
@@ -512,13 +441,13 @@ FROM ALL_TAB_COLUMNS
 WHERE OWNER = :OWNER AND TABLE_NAME = :TAB
 ORDER BY COLUMN_ID";
 
-        using var cmd = new OracleCommand(sql, conn);
+        using OracleCommand cmd = new OracleCommand(sql, conn);
         // Use bind parameters to avoid SQL injection and improve cursor reuse in Oracle's shared pool.
         cmd.Parameters.Add(":OWNER", OracleDbType.Varchar2, owner, ParameterDirection.Input);
         cmd.Parameters.Add(":TAB", OracleDbType.Varchar2, tab, ParameterDirection.Input);
 
-        using var r = cmd.ExecuteReader();
-        var cols = new List<ColumnInfo>();
+        using OracleDataReader r = cmd.ExecuteReader();
+        List<ColumnInfo> cols = new List<ColumnInfo>();
         while (r.Read())
             cols.Add(new ColumnInfo(r.GetString(0), r.GetString(1)));
 
@@ -565,18 +494,18 @@ ORDER BY COLUMN_ID";
                 // Oracle's DATE type stores date + time (up to seconds).
                 if (oracleDataType.Equals("DATE", StringComparison.OrdinalIgnoreCase))
                 {
-                    var sdt = dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                    string sdt = dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                     return $"TO_DATE('{sdt}','YYYY-MM-DD HH24:MI:SS')";
                 }
                 // TIMESTAMP types preserve sub-second precision (up to 7 fractional digits).
                 if (oracleDataType.StartsWith("TIMESTAMP", StringComparison.OrdinalIgnoreCase))
                 {
-                    var sdt = dt.ToString("yyyy-MM-dd HH:mm:ss.fffffff", CultureInfo.InvariantCulture);
+                    string sdt = dt.ToString("yyyy-MM-dd HH:mm:ss.fffffff", CultureInfo.InvariantCulture);
                     return $"TO_TIMESTAMP('{sdt}','YYYY-MM-DD HH24:MI:SS.FF7')";
                 }
                 // Fallback for any other date-like type — use second-level precision.
                 {
-                    var sdt = dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                    string sdt = dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                     return $"TO_DATE('{sdt}','YYYY-MM-DD HH24:MI:SS')";
                 }
 
@@ -597,13 +526,13 @@ ORDER BY COLUMN_ID";
             // Binary data (RAW / BLOB columns) is encoded as a hex string and wrapped in
             // Oracle's HEXTORAW() function so it is interpreted as binary, not text.
             case byte[] bytes:
-                var hex = BitConverter.ToString(bytes).Replace("-", "");
+                string hex = BitConverter.ToString(bytes).Replace("-", "");
                 return $"HEXTORAW('{hex}')";
 
             // Catch-all: convert the value to a string and quote it.
             // Covers types like OracleDecimal, OracleString, etc. returned by some ODP.NET drivers.
             default:
-                var str = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
+                string str = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
                 return "'" + str.Replace("'", "''") + "'";
         }
     }
@@ -617,7 +546,7 @@ ORDER BY COLUMN_ID";
     {
         // Replace every character that is illegal in a file name (e.g. /, \, :, *, ?, ", <, >, |)
         // with an underscore to produce a safe, portable file name.
-        foreach (var ch in Path.GetInvalidFileNameChars())
+        foreach (char ch in Path.GetInvalidFileNameChars())
             s = s.Replace(ch, '_');
 
         // Also convert dots to underscores so that "SCHEMA.TABLE" becomes "SCHEMA_TABLE.sql"
