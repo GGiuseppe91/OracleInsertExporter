@@ -13,7 +13,7 @@ class ExportConfig
     /// <summary>
     /// Gets or sets the OutputDir
     /// </summary>
-    public string OutputDir { get; set; } = $"export_sql_{DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+    public string OutputDir { get; set; } = $"export_sql";
 
     /// <summary>
     /// Gets or sets a value indicating whether QuoteIdentifiers

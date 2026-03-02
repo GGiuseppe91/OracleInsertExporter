@@ -254,7 +254,7 @@ internal static class Program
     /// <param name="currentSchema">The currentSchema<see cref="string"/></param>
     private static void ExportAllTablesToOneFile(OracleConnection conn, ExportConfig cfg, string currentSchema, Logger logger)
     {
-        string filePath = Path.Combine(cfg.OutputDir, $"export_all_tables_{DateTime.Now:yyyy-MM-dd HH:mm:ss}.sql");
+        string filePath = Path.Combine(cfg.OutputDir, $"export_all_tables_{DateTime.Now:yyyyMMdd_HHmmss}.sql");
         using StreamWriter sw = CreateWriter(filePath);
 
         // Write the file-level header comment with generation timestamp.
@@ -287,7 +287,7 @@ internal static class Program
     {
         // Derive a safe file name from the table name, replacing characters that are
         // invalid in file names (including '.' used in SCHEMA.TABLE notation).
-        string filePath = Path.Combine(cfg.OutputDir, $"{currentSchema}.{SanitizeFileName(tableName)}_{DateTime.Now:yyyy-MM-dd HH:mm:ss}.sql");
+        string filePath = Path.Combine(cfg.OutputDir, $"{currentSchema}.{SanitizeFileName(tableName)}_{DateTime.Now:yyyyMMdd_HHmmss}.sql");
         using StreamWriter sw = CreateWriter(filePath);
 
         WriteFileHeader(sw, tableName);
