@@ -14,8 +14,6 @@ internal static class Program
     
     public static int Main(string[] args)
     {
-        // Il logger viene creato prima di tutto il resto.
-        // Usiamo "export_sql" come cartella di default nel caso cfg non sia ancora disponibile.
         Logger? logger = null;
 
         try
@@ -30,7 +28,6 @@ internal static class Program
 
             Directory.CreateDirectory(cfg.OutputDir);
 
-            // Ora che conosciamo OutputDir, creiamo il logger.
             logger = new Logger(cfg.OutputDir);
 
             using OracleConnection conn = new OracleConnection(cfg.ConnectionString);
@@ -55,13 +52,12 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            // Se il logger è già disponibile, usa lui; altrimenti scrivi solo su stderr.
             logger?.LogError(ex.ToString());
             return 1;
         }
         finally
         {
-            logger?.Dispose(); // Garantisce la chiusura del file anche in caso di eccezione.
+            logger?.Dispose();
         }
     }
 
